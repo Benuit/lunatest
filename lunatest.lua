@@ -66,6 +66,8 @@ local _importing_env = getenv()
 -- -v / --verbose, default to verbose_hooks.
 -- -s or --suite, only run the named suite(s).
 -- -t or --test, only run tests matching the pattern.
+-- [jwarden 6.26.2012] TODO: test close support
+-- -c or --close, close if any suites or tests fail; true by default
 local lt_arg = arg
 
 -- #####################
@@ -700,6 +702,12 @@ local function run_suite(hooks, opts, results, suite_filter, sname, tests)
    end
 end
 
+-- [jwarden 6.25.2012] NOTE: getEnv was erroring out in Corona. This ensures
+-- the nil value can get returned and the tests can keep on mooooooovin'.
+local function safeGetEnv(value)
+  return pcall(getEnv, value)
+end
+
 ---Run all known test suites, with given configuration hooks.
 -- @param hooks Override the default hooks.
 -- @param suite_filter If set, only run suite(s) with names
@@ -726,7 +734,9 @@ function run(hooks, suite_filter)
    if now then results.t_pre = now() end
 
    -- If it's all in one test file, check its environment, too.
-   local env = getenv(3)
+   -- [jwarden 6.25.2012] FIX: getenv(3) throws an error in Corona,
+   -- so used a pcall
+   local env = safeGetEnv(3)
    if env then suites.main = get_tests(env) end
 
    if hooks.begin then hooks.begin(results, suites) end
@@ -740,7 +750,11 @@ function run(hooks, suite_filter)
    if hooks.done then hooks.done(results) end
 
    if failures_or_errors(results) or #failed_suites > 0 then
+    -- [jwarden 6.27.2012] WARNING: verify this actually works; not sure
+    -- how the commandlines arguments come in; as booleans or strings.
+    if opts.close == true or opts.c == true then
       os.exit(1)
+    end
    end
 end
 
