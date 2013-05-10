@@ -76,6 +76,8 @@ local _importing_env = getenv()
 -- -v / --verbose, default to verbose_hooks.
 -- -s or --suite, only run the named suite(s).
 -- -t or --test, only run tests matching the pattern.
+-- [jwarden 6.26.2012] TODO: test close support
+-- -c or --close, close if any suites or tests fail; true by default
 local lt_arg = arg
 
 -- #####################
@@ -202,7 +204,7 @@ function fail(msg, no_exit)
    if debug then
        local info = debug.getinfo(2, "l")
        line = info.currentline
-   end
+end
    error(Fail { msg=msg, reason="(Failed)", no_exit=no_exit, line=line })
 end
 
@@ -505,8 +507,8 @@ local function print_totals(r)
    local ps, fs = count(r.pass), count(r.fail)
    local ss, es = count(r.skip), count(r.err)
    if checked == 0 then return end
-   local el, unit = r.t_post - r.t_pre, "s"
-   if el < 1 then unit = "ms"; el = el * 1000 end
+      local el, unit = r.t_post - r.t_pre, "s"
+      if el < 1 then unit = "ms"; el = el * 1000 end
    local elapsed = fmt(" in %.2f %s", el, unit)
    local buf = {"\n---- Testing finished%s, ",
                 "with %d assertion(s) ----\n",
@@ -588,17 +590,17 @@ end
 local function get_tests(mod)
    local ts = {}
    if type(mod) == "table" then
-       for k,v in pairs(mod) do
-           if is_test_key(k) and type(v) == "function" then
-               ts[k] = v
-           end
-       end
-       ts.setup = rawget(mod, "setup")
-       ts.teardown = rawget(mod, "teardown")
-       ts.ssetup = rawget(mod, "suite_setup")
-       ts.steardown = rawget(mod, "suite_teardown")
-       return ts
+   for k,v in pairs(mod) do
+      if is_test_key(k) and type(v) == "function" then
+         ts[k] = v
+      end
    end
+   ts.setup = rawget(mod, "setup")
+   ts.teardown = rawget(mod, "teardown")
+   ts.ssetup = rawget(mod, "suite_setup")
+   ts.steardown = rawget(mod, "suite_teardown")
+   return ts
+end
    return {}
 end
 
@@ -641,7 +643,7 @@ local function run_test(name, test, suite, hooks, setup, teardown)
    if is_func(hooks.pre_test) then hooks.pre_test(name) end
    local t_pre, t_post, elapsed      --timestamps. requires luasocket.
    local ok, err
-
+   
    if is_func(setup) then
       ok, err = xpcall(function() setup(name) end, err_handler(name))
    else
@@ -666,7 +668,7 @@ local function run_test(name, test, suite, hooks, setup, teardown)
                       print(msg)
                       os.exit(1)
                    end)
-         end
+   end
       end
    end
 
@@ -744,6 +746,12 @@ local function run_suite(hooks, opts, results, sname, tests)
    end
 end
 
+-- [jwarden 6.25.2012] NOTE: getEnv was erroring out in Corona. This ensures
+-- the nil value can get returned and the tests can keep on mooooooovin'.
+local function safeGetEnv(value)
+  return pcall(getEnv, value)
+end
+
 ---Run all known test suites, with given configuration hooks.
 -- @param hooks Override the default hooks.
 -- @param opts Override command line arguments.
@@ -769,7 +777,9 @@ function run(hooks, opts)
    results.t_pre = now()
 
    -- If it's all in one test file, check its environment, too.
-   local env = getenv(3)
+   -- [jwarden 6.25.2012] FIX: getenv(3) throws an error in Corona,
+   -- so used a pcall
+   local env = safeGetEnv(3)
    if env then suites.main = get_tests(env) end
 
    if hooks.begin then hooks.begin(results, suites) end
@@ -780,9 +790,13 @@ function run(hooks, opts)
    results.t_post = now()
    if hooks.done then hooks.done(results) end
 
-   local failures = failure_or_error_count(results)
-   if failures > 0 then os.exit(failures) end
-   if #failed_suites > 0 then os.exit(#failed_suites) end
+   if failures_or_errors(results) or #failed_suites > 0 then
+    -- [jwarden 6.27.2012] WARNING: verify this actually works; not sure
+    -- how the commandlines arguments come in; as booleans or strings.
+    if opts.close == true or opts.c == true then
+      os.exit(1)
+    end
+   end
 end
 
 
