@@ -790,13 +790,16 @@ function run(hooks, opts)
    results.t_post = now()
    if hooks.done then hooks.done(results) end
 
-   if failures_or_errors(results) or #failed_suites > 0 then
+   local failures = failure_or_error_count(results)
+   if failures > 0 then os.exit(failures) end
+   if #failed_suites > 0 then os.exit(#failed_suites) end
+
     -- [jwarden 6.27.2012] WARNING: verify this actually works; not sure
     -- how the commandlines arguments come in; as booleans or strings.
     if opts.close == true or opts.c == true then
       os.exit(1)
     end
-   end
+   
 end
 
 
